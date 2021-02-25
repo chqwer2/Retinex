@@ -117,9 +117,18 @@ class lowlight_enhance(object):
 
         # fft loss
         mag_fft_h, ang_fft_h = fft_tf(I_high)
-        mag_fft, ang_fft = fft_tf(I_low)
+        # mag_fft, ang_fft = fft_tf(I_low)
+        mag_fft, ang_fft = fft_tf(I_delta)
         self.fft_loss = tf.reduce_mean(tf.abs(mag_fft_h - mag_fft))
+        self.ang_loss = tf.reduce_mean(tf.abs(ang_fft_h - ang_fft))  # ang.
         print("ifft_loss:", self.fft_loss)
+
+        # Retinex
+        ret_h = tf.math.log(R_high) + tf.math.log(I_high_3)
+        ret_l = tf.math.log(R_low) + tf.math.log(I_low_3)
+
+        self.retinex_loss = tf.reduce_mean(tf.abs(ret_h - ret_l)) #/ 255 #log
+        print("Retinex_loss:", self.retinex_loss)
         # loss
         self.recon_loss_low = tf.reduce_mean(tf.abs(R_low * I_low_3 -  self.input_low))
         self.recon_loss_high = tf.reduce_mean(tf.abs(R_high * I_high_3 - self.input_high))
@@ -132,8 +141,13 @@ class lowlight_enhance(object):
         self.Ismooth_loss_high = self.smooth(I_high, R_high)
         self.Ismooth_loss_delta = self.smooth(I_delta, R_low)
 
-        self.loss_Decom = self.recon_loss_low + self.recon_loss_high + 0.001 * self.recon_loss_mutal_low + 0.001 * self.recon_loss_mutal_high + 0.1 * self.Ismooth_loss_low + 0.1 * self.Ismooth_loss_high + 0.01 * self.equal_R_loss
-        self.loss_Relight = self.relight_loss + 3 * self.Ismooth_loss_delta + self.fft_loss
+        self.loss_Decom = self.recon_loss_low + self.recon_loss_high + 0.001 * self.recon_loss_mutal_low + \
+                          0.001 * self.recon_loss_mutal_high + 0.1 * self.Ismooth_loss_low + \
+                          0.1 * self.Ismooth_loss_high + 0.01 * self.equal_R_loss #+ \
+                          #self.retinex_loss
+
+        self.loss_Relight = self.relight_loss + 3 * self.Ismooth_loss_delta + \
+                            self.ang_loss + self.fft_loss
 
         self.lr = tf.compat.v1.placeholder(tf.float32, name='learning_rate')
         optimizer = tf.compat.v1.train.AdamOptimizer(self.lr, name='AdamOptimizer', epsilon=1e-7) #1e-8

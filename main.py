@@ -5,10 +5,10 @@ from glob import glob
 # python main.py --use_gpu=1  --gpu_idx=0 --gpu_mem=0.5 --phase=test  --test_dir=/path/to/your/test/dir/ --save_dir=/path/to/save/results/  --decom=0
 from PIL import Image
 import tensorflow as tf   #2.2.0'
-
+import skimage.io as io
 from model import lowlight_enhance
 from utils import *
-
+from SSIM import compute_ssim
 # test :
 #python main.py  --phase=test  --test_dir=./data/test/low  --decom=0
 
@@ -53,24 +53,26 @@ def lowlight_train(lowlight_enhance):
     assert len(train_low_data_names) == len(train_high_data_names)
     print('[*] Number of training data: %d' % len(train_low_data_names))
 
-    for idx in range(len(train_low_data_names)):
-        low_im = load_images(train_low_data_names[idx])
-        train_low_data.append(low_im)
-        high_im = load_images(train_high_data_names[idx])
-        train_high_data.append(high_im)
+    # for idx in range(len(train_low_data_names)):
+    #     low_im = load_images(train_low_data_names[idx])
+    #     train_low_data.append(low_im)
+    #     high_im = load_images(train_high_data_names[idx])
+    #     train_high_data.append(high_im)
+    #     break
+    # print("high:", high_im[0])
 
-    eval_low_data = []
-    eval_high_data = []
 
-    eval_low_data_name = glob('./data/low/*.png')
+    train_high_data = np.array(io.ImageCollection('./data/high/*.png'), dtype="float16") / 255
+    train_low_data = np.array(io.ImageCollection('./data/low/*.png'), dtype="float16") / 255
+    # float 32 -> float 16
 
-    for idx in range(len(eval_low_data_name)):
-        eval_low_im = load_images(eval_low_data_name[idx])
-        eval_low_data.append(eval_low_im)
+    eval_low_data = train_low_data
+    eval_high_data = train_high_data
 
-    lowlight_enhance.train(train_low_data, train_high_data, eval_low_data, batch_size=args.batch_size, patch_size=args.patch_size, epoch=args.epoch, lr=lr, sample_dir=args.sample_dir, ckpt_dir=os.path.join(args.ckpt_dir, 'Decom'), eval_every_epoch=args.eval_every_epoch, train_phase="Decom")
 
-    lowlight_enhance.train(train_low_data, train_high_data, eval_low_data, batch_size=args.batch_size, patch_size=args.patch_size, epoch=args.epoch, lr=lr, sample_dir=args.sample_dir, ckpt_dir=os.path.join(args.ckpt_dir, 'Relight'), eval_every_epoch=args.eval_every_epoch, train_phase="Relight")
+    lowlight_enhance.train(train_low_data, train_high_data, eval_low_data, eval_high_data, batch_size=args.batch_size, patch_size=args.patch_size, epoch=args.epoch, lr=lr, sample_dir=args.sample_dir, ckpt_dir=os.path.join(args.ckpt_dir, 'Decom'), eval_every_epoch=args.eval_every_epoch, train_phase="Decom")
+
+    lowlight_enhance.train(train_low_data, train_high_data, eval_low_data, eval_high_data, batch_size=args.batch_size, patch_size=args.patch_size, epoch=args.epoch, lr=lr, sample_dir=args.sample_dir, ckpt_dir=os.path.join(args.ckpt_dir, 'Relight'), eval_every_epoch=args.eval_every_epoch, train_phase="Relight")
 
 
 def lowlight_test(lowlight_enhance):

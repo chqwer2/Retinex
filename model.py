@@ -9,6 +9,7 @@ import tensorflow as tf
 import numpy as np
 from utils_tf import ifft_tf, fft_tf
 from utils import *
+from SSIM import compute_ssim
 
 def concat(layers):
     return tf.concat(layers, axis=3)
@@ -119,7 +120,7 @@ class lowlight_enhance(object):
         mag_fft_h, ang_fft_h = fft_tf(I_high)
         # mag_fft, ang_fft = fft_tf(I_low)
         mag_fft, ang_fft = fft_tf(I_delta)
-        self.fft_loss = tf.reduce_mean(tf.abs(mag_fft_h - mag_fft))
+        self.mag_loss = tf.reduce_mean(tf.abs(mag_fft_h - mag_fft))
         self.ang_loss = tf.reduce_mean(tf.abs(ang_fft_h - ang_fft))  # ang.
         print("ifft_loss:", self.fft_loss)
 
@@ -129,8 +130,12 @@ class lowlight_enhance(object):
 
         self.retinex_loss = tf.reduce_mean(tf.abs(ret_h - ret_l)) #/ 255 #log
         print("Retinex_loss:", self.retinex_loss)
+
+        # SSIM
+        self.recon_ssim_loss = tf.reduce_mean(1 - tf.image.ssim(R_high * I_high_3, R_low * I_low_3, 1.0))
+
         # loss
-        self.recon_loss_low = tf.reduce_mean(tf.abs(R_low * I_low_3 -  self.input_low))
+        self.recon_loss_low = tf.reduce_mean(tf.abs(R_low * I_low_3 - self.input_low))
         self.recon_loss_high = tf.reduce_mean(tf.abs(R_high * I_high_3 - self.input_high))
         self.recon_loss_mutal_low = tf.reduce_mean(tf.abs(R_high * I_low_3 - self.input_low))
         self.recon_loss_mutal_high = tf.reduce_mean(tf.abs(R_low * I_high_3 - self.input_high))
@@ -143,11 +148,12 @@ class lowlight_enhance(object):
 
         self.loss_Decom = self.recon_loss_low + self.recon_loss_high + 0.001 * self.recon_loss_mutal_low + \
                           0.001 * self.recon_loss_mutal_high + 0.1 * self.Ismooth_loss_low + \
-                          0.1 * self.Ismooth_loss_high + 0.01 * self.equal_R_loss #+ \
+                          0.1 * self.Ismooth_loss_high + 0.01 * self.equal_R_loss + \
+                          self.recon_ssim_loss
                           #self.retinex_loss
 
         self.loss_Relight = self.relight_loss + 3 * self.Ismooth_loss_delta + \
-                            self.ang_loss + self.fft_loss
+                            self.ang_loss #+ self.mag_loss
 
         self.lr = tf.compat.v1.placeholder(tf.float32, name='learning_rate')
         optimizer = tf.compat.v1.train.AdamOptimizer(self.lr, name='AdamOptimizer', epsilon=1e-7) #1e-8
@@ -182,27 +188,35 @@ class lowlight_enhance(object):
         input_R = tf.image.rgb_to_grayscale(input_R)
         return tf.reduce_mean(self.gradient(input_I, "x") * tf.exp(-10 * self.ave_gradient(input_R, "x")) + self.gradient(input_I, "y") * tf.exp(-10 * self.ave_gradient(input_R, "y")))
 
-    def evaluate(self, epoch_num, eval_low_data, sample_dir, train_phase):
+    def evaluate(self, epoch_num, eval_low_data, eval_high_data, sample_dir, train_phase):
         print("[*] Evaluating for phase %s / epoch %d..." % (train_phase, epoch_num))
 
         for idx in range(len(eval_low_data)):
             input_low_eval = np.expand_dims(eval_low_data[idx], axis=0)
-
+            output_high_eval = np.expand_dims(eval_high_data[idx], axis=0)
+            # R, L
             if train_phase == "Decom":
+                # [features, labels]
                 result_1, result_2 = self.sess.run([self.output_R_low, self.output_I_low], feed_dict={self.input_low: input_low_eval})
-            if train_phase == "Relight":
+
+                print("SSIM of Batch:{}".format(compute_ssim(result_1, output_high_eval )))
+
+            elif train_phase == "Relight":
                 result_1, result_2 = self.sess.run([self.output_S, self.output_I_delta], feed_dict={self.input_low: input_low_eval})
+
 
             save_images(os.path.join(sample_dir, 'eval_%s_%d_%d.png' % (train_phase, idx + 1, epoch_num)), result_1, result_2)
 
-    def train(self, train_low_data, train_high_data, eval_low_data, batch_size, patch_size, epoch, lr, sample_dir, ckpt_dir, eval_every_epoch, train_phase):
+
+
+    def train(self, train_low_data, train_high_data, eval_low_data, eval_high_data, batch_size, patch_size, epoch, lr, sample_dir, ckpt_dir, eval_every_epoch, train_phase):
         assert len(train_low_data) == len(train_high_data)
         numBatch = len(train_low_data) // int(batch_size)
-        print("num of Batch:", numBatch, batch_size, len(train_low_data))
+
         # load pretrained model
         if train_phase == "Decom":
             train_op = self.train_op_Decom
-            train_loss = self.loss_Decom
+            train_loss = self.loss_Decom #self.recon_ssim_loss #
             saver = self.saver_Decom
         elif train_phase == "Relight":
             train_op = self.train_op_Relight
@@ -257,7 +271,7 @@ class lowlight_enhance(object):
 
             # evalutate the model and save a checkpoint file for it
             if (epoch + 1) % eval_every_epoch == 0:
-                self.evaluate(epoch + 1, eval_low_data, sample_dir=sample_dir, train_phase=train_phase)
+                self.evaluate(epoch + 1, eval_low_data, eval_high_data, sample_dir=sample_dir, train_phase=train_phase)
                 self.save(saver, iter_num, ckpt_dir, "RetinexNet-%s" % train_phase)
 
         print("[*] Finish training for phase %s." % train_phase)

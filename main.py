@@ -8,7 +8,7 @@ import tensorflow as tf   #2.2.0'
 import skimage.io as io
 from model import lowlight_enhance
 from utils import *
-from SSIM import compute_ssim
+from SSIM import compute_ssim, PSNR
 # test :
 #python main.py  --phase=test  --test_dir=./data/test/low  --decom=0
 
@@ -19,7 +19,7 @@ parser.add_argument('--gpu_idx', dest='gpu_idx', default="0", help='GPU idx')
 parser.add_argument('--gpu_mem', dest='gpu_mem', type=float, default=0.5, help="0 to 1, gpu memory usage")
 parser.add_argument('--phase', dest='phase', default='train', help='train or test')
 
-parser.add_argument('--epoch', dest='epoch', type=int, default=200, help='number of total epoches')
+parser.add_argument('--epoch', dest='epoch', type=int, default=100, help='number of total epoches')
 parser.add_argument('--batch_size', dest='batch_size', type=int, default=2, help='number of samples in one batch') #16
 parser.add_argument('--patch_size', dest='patch_size', type=int, default=48, help='patch size')
 parser.add_argument('--start_lr', dest='start_lr', type=float, default=0.001, help='initial learning rate for adam')
@@ -43,28 +43,10 @@ def lowlight_train(lowlight_enhance):
     lr[:10] = lr[0]*np.array(range(10))/5
     lr[70:] = lr[0] / 10.0
 
-    train_low_data = []
-    train_high_data = []
-
-    train_low_data_names = glob('./data/low/*.png') #+ glob('./data/syn/low/*.png')
-    train_low_data_names.sort()
-    train_high_data_names = glob('./data/high/*.png')# + glob('./data/syn/high/*.png')
-    train_high_data_names.sort()
-    assert len(train_low_data_names) == len(train_high_data_names)
-    print('[*] Number of training data: %d' % len(train_low_data_names))
-
-    # for idx in range(len(train_low_data_names)):
-    #     low_im = load_images(train_low_data_names[idx])
-    #     train_low_data.append(low_im)
-    #     high_im = load_images(train_high_data_names[idx])
-    #     train_high_data.append(high_im)
-    #     break
-    # print("high:", high_im[0])
-
-
     train_high_data = np.array(io.ImageCollection('./data/high/*.png'), dtype="float16") / 255
     train_low_data = np.array(io.ImageCollection('./data/low/*.png'), dtype="float16") / 255
     # float 32 -> float 16
+    print('[*] Number of training data: %d' % train_high_data.shape[0])
 
     eval_low_data = train_low_data
     eval_high_data = train_high_data
@@ -83,12 +65,15 @@ def lowlight_test(lowlight_enhance):
     if not os.path.exists(args.save_dir):
         os.makedirs(args.save_dir)
 
-    test_low_data_name = glob(os.path.join(args.test_dir) + '/*.*')
+    test_low_data_name = glob('./data/low/*.png')  #os.path.join(args.test_dir) + '/*.*')
+    test_high_data_name = glob('./data/high/*.png')# , dtype="float16") / 255
     test_low_data = []
     test_high_data = []
     for idx in range(len(test_low_data_name)):
         test_low_im = load_images(test_low_data_name[idx])
         test_low_data.append(test_low_im)
+        test_high_im = load_images(test_high_data_name[idx])
+        test_high_data.append(test_high_im)
 
     lowlight_enhance.test(test_low_data, test_high_data, test_low_data_name, save_dir=args.save_dir, decom_flag=args.decom)
 

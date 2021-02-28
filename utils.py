@@ -47,7 +47,7 @@ def data_augmentation(image, mode):
 
 def load_images(file):
     im = Image.open(file)
-    return np.array(im, dtype="float32") / 255.0
+    return np.array(im, dtype="float16") / 255.0  #32
 
 def save_images(filepath, result_1, result_2 = None):
     result_1 = np.squeeze(result_1)

@@ -9,14 +9,14 @@ import tensorflow as tf
 import numpy as np
 from utils_tf import ifft_tf, fft_tf
 from utils import *
-from SSIM import compute_ssim
+from SSIM import compute_ssim, PSNR
 
 def concat(layers):
     return tf.concat(layers, axis=3)
 
 def DecomNet(input_im, layer_num, channel=64, kernel_size=3):
     input_max = tf.reduce_max(input_im, axis=3, keepdims=True)   #maximum
-    input_im = concat([input_max, input_im])  #TODO, max to the end
+    input_im = concat([input_im, input_max])
     with tf.compat.v1.variable_scope('DecomNet', reuse=tf.compat.v1.AUTO_REUSE):
         conv = tf.compat.v1.layers.conv2d(input_im, channel, kernel_size * 3, padding='same', activation=None, name="shallow_feature_extraction")
         for idx in range(layer_num):
@@ -24,7 +24,7 @@ def DecomNet(input_im, layer_num, channel=64, kernel_size=3):
         conv = tf.compat.v1.layers.conv2d(conv, 4, kernel_size, padding='same', activation=None, name='recon_layer')
         # filter = 4
     R = tf.sigmoid(conv[:,:,:,0:3])   # R o L
-    L = tf.sigmoid(conv[:,:,:,3:4])
+    L = tf.sigmoid(conv[:,:,:,3:])
 
     return R, L
 
@@ -122,7 +122,7 @@ class lowlight_enhance(object):
         mag_fft, ang_fft = fft_tf(I_delta)
         self.mag_loss = tf.reduce_mean(tf.abs(mag_fft_h - mag_fft))
         self.ang_loss = tf.reduce_mean(tf.abs(ang_fft_h - ang_fft))  # ang.
-        print("ifft_loss:", self.fft_loss)
+
 
         # Retinex
         ret_h = tf.math.log(R_high) + tf.math.log(I_high_3)
@@ -148,12 +148,12 @@ class lowlight_enhance(object):
 
         self.loss_Decom = self.recon_loss_low + self.recon_loss_high + 0.001 * self.recon_loss_mutal_low + \
                           0.001 * self.recon_loss_mutal_high + 0.1 * self.Ismooth_loss_low + \
-                          0.1 * self.Ismooth_loss_high + 0.01 * self.equal_R_loss + \
-                          self.recon_ssim_loss
+                          0.1 * self.Ismooth_loss_high + 0.01 * self.equal_R_loss# + \
+                          # 0.1 * self.recon_ssim_loss
                           #self.retinex_loss
 
-        self.loss_Relight = self.relight_loss + 3 * self.Ismooth_loss_delta + \
-                            self.ang_loss #+ self.mag_loss
+        self.loss_Relight = self.relight_loss + 3 * self.Ismooth_loss_delta #+ \
+                            # 0.1 * self.ang_loss #+ self.mag_loss
 
         self.lr = tf.compat.v1.placeholder(tf.float32, name='learning_rate')
         optimizer = tf.compat.v1.train.AdamOptimizer(self.lr, name='AdamOptimizer', epsilon=1e-7) #1e-8
@@ -199,7 +199,7 @@ class lowlight_enhance(object):
                 # [features, labels]
                 result_1, result_2 = self.sess.run([self.output_R_low, self.output_I_low], feed_dict={self.input_low: input_low_eval})
 
-                print("SSIM of Batch:{}".format(compute_ssim(result_1, output_high_eval )))
+                print("SSIM of Batch:{}".format(compute_ssim(result_1 * result_2, output_high_eval)))
 
             elif train_phase == "Relight":
                 result_1, result_2 = self.sess.run([self.output_S, self.output_I_delta], feed_dict={self.input_low: input_low_eval})
@@ -298,12 +298,19 @@ class lowlight_enhance(object):
             print("[*] Failed to load model from %s" % ckpt_dir)
             return False, 0
 
-    def test(self, test_low_data, test_high_data, test_low_data_names, save_dir, decom_flag):
+
+    def test(self, test_low_data, test_high_data, test_low_data_names, save_dir, decom_flag, model=False):
         tf.compat.v1.global_variables_initializer().run()
 
         print("[*] Reading checkpoint...")
-        load_model_status_Decom, _ = self.load(self.saver_Decom, './model/Decom')
-        load_model_status_Relight, _ = self.load(self.saver_Relight, './model/Relight')
+        if model:
+            print("[*] Load model from Model")
+            load_model_status_Decom, _ = self.load(self.saver_Decom, './model/Decom')
+            load_model_status_Relight, _ = self.load(self.saver_Relight, './model/Relight')
+        else:
+            print("Load model from checkpoint")
+            load_model_status_Decom, _ = self.load(self.saver_Decom, './checkpoint/Decom')
+            load_model_status_Relight, _ = self.load(self.saver_Relight, './checkpoint/Relight')
         if load_model_status_Decom and load_model_status_Relight:
             print("[*] Load weights successfully...")
         
@@ -315,6 +322,7 @@ class lowlight_enhance(object):
             name = name[:name.find('.')]
 
             input_low_test = np.expand_dims(test_low_data[idx], axis=0)
+
             if input_low_test.shape[-1]==4:   #  (1, 536, 718, 4)
                 input_low_test=input_low_test[:,:,:,:3]
                 print(input_low_test.shape)
@@ -326,3 +334,6 @@ class lowlight_enhance(object):
                 save_images(os.path.join(save_dir, name + "_I_low." + suffix), I_low)
                 save_images(os.path.join(save_dir, name + "_I_delta." + suffix), I_delta)
             save_images(os.path.join(save_dir, name + "_S."   + suffix), S)
+            # print("idx:", np.array(test_high_data[idx]).shape, S.shape)  #400, 600, 3) (1, 680, 720, 3)
+            print("SSIM of {}: {}".format(name, compute_ssim(S, np.expand_dims(test_high_data[idx],axis=0))))
+            print("PSNR of {}: {}".format(name, PSNR(255*np.expand_dims(test_high_data[idx], axis=0), 255*S)))

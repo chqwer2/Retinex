@@ -3,6 +3,13 @@ from PIL import Image
 from scipy.signal import convolve2d
 
 
+def PSNR(y_true, y_pred):
+    out = np.zeros(3)
+    for i in range(3):
+        out[i] = 10 * np.log(255 * 2 / (np.mean(np.square(y_pred[:, :, i] - y_true[:, :, i]))))
+    return np.mean(out)
+
+
 def matlab_style_gauss2D(shape=(3, 3), sigma=0.5):
     """
     2D gaussian mask - should give the same result as MATLAB's

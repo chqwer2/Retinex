@@ -1,12 +1,24 @@
 import numpy as np
 from PIL import Image
 from scipy.signal import convolve2d
+from skimage.measure import compare_ssim, compare_psnr
+import cv2
+
+def _as_floats(image0, image1):
+    """
+    Promote im1, im2 to nearest appropriate floating point precision.
+    """
+    float_type = np.result_type(image0.dtype, image1.dtype, np.float32)
+    image0 = np.asarray(image0, dtype=float_type)
+    image1 = np.asarray(image1, dtype=float_type)
+    return image0, image1
 
 
 def PSNR(y_true, y_pred):
-    out = np.zeros(3)
-    for i in range(3):
-        out[i] = 10 * np.log(255 * 2 / (np.mean(np.square(y_pred[:, :, i] - y_true[:, :, i]))))
+
+    # err = mean_squared_error(image_true, image_test)
+    y_true, y_pred = _as_floats(y_true, y_pred)
+    out = 10 * np.log10((255**2) / np.mean(np.square(y_pred - y_true), dtype=np.float64))
     return np.mean(out)
 
 
@@ -65,9 +77,21 @@ def compute_ssim(im1, im2, k1=0.01, k2=0.03, win_size=11, L=255):
     return np.mean(np.mean(ssim_map))
 
 
+def sk_psnr(im1, im2):
+    # blur = cv2.GaussianBlur(origin, (5, 5), 0)
+    psnr_dark = compare_psnr(im1, im2, data_range=255)
+    return psnr_dark
+
+def sk_ssim(im1, im2):
+    ssim_dark = compare_ssim(im1, im2, multichannel=True)
+    return ssim_dark
+
 if __name__ == "__main__":
     im1 = Image.open("data/low/1.png")
     im2 = Image.open("data/high/1.png")
     print(np.array(im1).shape)
 
-    print("SSIM score:", compute_ssim(np.array(im1), np.array(im2)))
+    print("sk SSIM score:", sk_ssim(np.array(im1), np.array(im2)))
+    print("SSIM score:", compute_ssim(np.expand_dims(np.array(im1),axis=0), np.expand_dims(np.array(im2),axis=0)))
+    print("sk psnr score:", sk_psnr(np.array(im1), np.array(im2)))
+    print("PSNR score:", PSNR(np.expand_dims(np.array(im1), axis=0), np.expand_dims(np.array(im2), axis=0)))

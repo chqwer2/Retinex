@@ -299,7 +299,7 @@ class lowlight_enhance(object):
             return False, 0
 
 
-    def test(self, test_low_data, test_high_data, test_low_data_names, save_dir, decom_flag, model=False):
+    def test(self, test_low_data, test_high_data, test_low_data_names, save_dir, decom_flag, model=True):
         tf.compat.v1.global_variables_initializer().run()
 
         print("[*] Reading checkpoint...")
